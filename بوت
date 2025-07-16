@@ -1,0 +1,143 @@
+# smm_bot_provider/main.py (نظام مزود SMM متكامل)
+
+import telebot
+import json
+import os
+from telebot import types
+from flask import Flask, request, jsonify
+import threading
+import random
+import time
+
+# Telegram bot token
+BOT_TOKEN = '7951213232:AAFvQ8qEQ1rnLD6xt8tPctsdGNIxH-92Yo8'
+bot = telebot.TeleBot(BOT_TOKEN)
+
+# File to store accounts
+ACCOUNTS_FILE = 'accounts.json'
+
+# Supported platforms and services
+PLATFORMS = ['tiktok', 'instagram', 'facebook', 'youtube']
+SERVICES = ['views', 'likes', 'comments', 'follows']
+
+# API Key for authentication
+API_KEY = 'my_secure_key_123'
+
+# Initialize accounts file
+def init_accounts():
+    if not os.path.exists(ACCOUNTS_FILE):
+        with open(ACCOUNTS_FILE, 'w') as f:
+            json.dump([], f)
+
+# Save new account
+def save_account(platform, email, password):
+    with open(ACCOUNTS_FILE, 'r') as f:
+        accounts = json.load(f)
+    accounts.append({"platform": platform, "email": email, "password": password})
+    with open(ACCOUNTS_FILE, 'w') as f:
+        json.dump(accounts, f, indent=2)
+
+# Retrieve accounts by platform
+def get_accounts_by_platform(platform):
+    with open(ACCOUNTS_FILE, 'r') as f:
+        accounts = json.load(f)
+    return [acc for acc in accounts if acc['platform'] == platform]
+
+# Simulate a task execution
+def simulate_task(platform, service, link, quantity):
+    print(f"[SIMULATING] {service} on {platform} for {link} using {quantity} accounts...")
+    time.sleep(1)
+    return f"Fake {service} sent to {link} with {quantity} using {platform} accounts."
+
+###############################
+# TELEGRAM BOT PART
+###############################
+
+@bot.message_handler(commands=['start'])
+def start_handler(message):
+    bot.send_message(message.chat.id, "\u2705 أهلاً بك في مزود خدمات SMM\nاختر المنصة لإضافة حساب وهمي:", reply_markup=platform_keyboard())
+
+def platform_keyboard():
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    for platform in PLATFORMS:
+        markup.add(platform.capitalize())
+    return markup
+
+@bot.message_handler(func=lambda message: message.text.lower() in [p.lower() for p in PLATFORMS])
+def platform_selected(message):
+    platform = message.text.lower()
+    bot.send_message(message.chat.id, f"أرسل معلومات الحساب على {platform.capitalize()} بصيغة:\nemail:password")
+    bot.register_next_step_handler(message, lambda msg: handle_account_input(msg, platform))
+
+def handle_account_input(message, platform):
+    try:
+        credentials = message.text.strip().split(":")
+        if len(credentials) != 2:
+            raise ValueError
+        email, password = credentials[0], credentials[1]
+        save_account(platform, email, password)
+        bot.send_message(message.chat.id, f"✅ تم حفظ الحساب ({platform}) بنجاح.")
+    except:
+        bot.send_message(message.chat.id, "❌ صيغة غير صحيحة. استخدم email:password فقط")
+
+@bot.message_handler(commands=['list'])
+def list_accounts(message):
+    with open(ACCOUNTS_FILE, 'r') as f:
+        accounts = json.load(f)
+    if not accounts:
+        bot.send_message(message.chat.id, "لا توجد حسابات مسجلة.")
+        return
+    msg = "📋 الحسابات المسجلة:\n"
+    for acc in accounts:
+        msg += f"- {acc['platform'].capitalize()} | {acc['email']}\n"
+    bot.send_message(message.chat.id, msg)
+
+###############################
+# FLASK API PART
+###############################
+
+app = Flask(__name__)
+
+@app.route('/api/order', methods=['POST'])
+def api_order():
+    data = request.json
+    required = ['platform', 'service', 'link', 'quantity', 'api_key']
+    if not all(field in data for field in required):
+        return jsonify({'status': 'error', 'message': 'Missing fields'}), 400
+
+    if data['api_key'] != API_KEY:
+        return jsonify({'status': 'error', 'message': 'Invalid API key'}), 403
+
+    platform = data['platform'].lower()
+    service = data['service'].lower()
+    link = data['link']
+    quantity = int(data['quantity'])
+
+    if platform not in PLATFORMS or service not in SERVICES:
+        return jsonify({'status': 'error', 'message': 'Unsupported platform/service'}), 400
+
+    accounts = get_accounts_by_platform(platform)
+    if not accounts:
+        return jsonify({'status': 'error', 'message': 'No available accounts'}), 503
+
+    result = simulate_task(platform, service, link, quantity)
+    return jsonify({
+        'status': 'success',
+        'message': result
+    }), 200
+
+###############################
+# RUN BOT + API
+###############################
+
+if __name__ == '__main__':
+    init_accounts()
+
+    def run_bot():
+        bot.infinity_polling()
+
+    def run_api():
+        app.run(host='0.0.0.0', port=8080)
+
+    threading.Thread(target=run_bot).start()
+    threading.Thread(target=run_api).start()
